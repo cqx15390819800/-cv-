@@ -1,0 +1,155 @@
+Datawhale 零基础入门CV赛事-Task5 模型集成
+在上一章我们学习了如何构建验证集，如何训练和验证。本章作为本次赛题学习的最后一章，将会讲解如何使用集成学习提高预测精度。
+
+5 模型集成
+本章讲解的知识点包括：集成学习方法、深度学习中的集成学习和结果后处理思路。
+
+5.1 学习目标
+学习集成学习方法以及交叉验证情况下的模型集成
+学会使用深度学习模型的集成学习
+5.2 集成学习方法
+在机器学习中的集成学习可以在一定程度上提高预测精度，常见的集成学习方法有Stacking、Bagging和Boosting，同时这些集成学习方法与具体验证集划分联系紧密。
+
+由于深度学习模型一般需要较长的训练周期，如果硬件设备不允许建议选取留出法，如果需要追求精度可以使用交叉验证的方法。
+
+下面假设构建了10折交叉验证，训练得到10个CNN模型。
+Image
+
+那么在10个CNN模型可以使用如下方式进行集成：
+
+对预测的结果的概率值进行平均，然后解码为具体字符；
+对预测的字符进行投票，得到最终字符。
+5.3 深度学习中的集成学习
+此外在深度学习中本身还有一些集成学习思路的做法，值得借鉴学习：
+
+5.3.1 Dropout
+Dropout可以作为训练深度神经网络的一种技巧。在每个训练批次中，通过随机让一部分的节点停止工作。同时在预测的过程中让所有的节点都其作用。
+Image
+
+Dropout经常出现在在先有的CNN网络中，可以有效的缓解模型过拟合的情况，也可以在预测时增加模型的精度。
+
+加入Dropout后的网络结构如下：
+
+1
+# 定义模型
+2
+class SVHN_Model1(nn.Module):
+3
+    def __init__(self):
+4
+        super(SVHN_Model1, self).__init__()
+5
+        # CNN提取特征模块
+6
+        self.cnn = nn.Sequential(
+7
+            nn.Conv2d(3, 16, kernel_size=(3, 3), stride=(2, 2)),
+8
+            nn.ReLU(),
+9
+            nn.Dropout(0.25),
+10
+            nn.MaxPool2d(2),
+11
+            nn.Conv2d(16, 32, kernel_size=(3, 3), stride=(2, 2)),
+12
+            nn.ReLU(), 
+13
+            nn.Dropout(0.25),
+14
+            nn.MaxPool2d(2),
+15
+        )
+16
+        # 
+17
+        self.fc1 = nn.Linear(32*3*7, 11)
+18
+        self.fc2 = nn.Linear(32*3*7, 11)
+19
+        self.fc3 = nn.Linear(32*3*7, 11)
+20
+        self.fc4 = nn.Linear(32*3*7, 11)
+21
+        self.fc5 = nn.Linear(32*3*7, 11)
+22
+        self.fc6 = nn.Linear(32*3*7, 11)
+23
+    
+24
+    def forward(self, img):        
+25
+        feat = self.cnn(img)
+26
+        feat = feat.view(feat.shape[0], -1)
+27
+        c1 = self.fc1(feat)
+28
+        c2 = self.fc2(feat)
+29
+        c3 = self.fc3(feat)
+30
+        c4 = self.fc4(feat)
+31
+        c5 = self.fc5(feat)
+32
+        c6 = self.fc6(feat)
+33
+        return c1, c2, c3, c4, c5, c6
+5.3.2 TTA
+测试集数据扩增（Test Time Augmentation，简称TTA）也是常用的集成学习技巧，数据扩增不仅可以在训练时候用，而且可以同样在预测时候进行数据扩增，对同一个样本预测三次，然后对三次结果进行平均。
+
+1	2	3
+Image	Image	Image
+1
+def predict(test_loader, model, tta=10):
+2
+    model.eval()
+3
+    test_pred_tta = None
+4
+    # TTA 次数
+5
+    for _ in range(tta):
+6
+        test_pred = []
+7
+    
+8
+        with torch.no_grad():
+9
+            for i, (input, target) in enumerate(test_loader):
+10
+                c0, c1, c2, c3, c4, c5 = model(data[0])
+11
+                output = np.concatenate([c0.data.numpy(), c1.data.numpy(),
+12
+                   c2.data.numpy(), c3.data.numpy(),
+13
+                   c4.data.numpy(), c5.data.numpy()], axis=1)
+14
+                test_pred.append(output)
+15
+        
+16
+        test_pred = np.vstack(test_pred)
+17
+        if test_pred_tta is None:
+18
+            test_pred_tta = test_pred
+19
+        else:
+20
+            test_pred_tta += test_pred
+21
+    
+22
+    return test_pred_tta
+5.3.3 Snapshot
+本章的开头已经提到，假设我们训练了10个CNN则可以将多个模型的预测结果进行平均。但是加入只训练了一个CNN模型，如何做模型集成呢？
+
+在论文Snapshot Ensembles中，作者提出使用cyclical learning rate进行训练模型，并保存精度比较好的一些checkopint，最后将多个checkpoint进行模型集成。
+Image
+
+由于在cyclical learning rate中学习率的变化有周期性变大和减少的行为，因此CNN模型很有可能在跳出局部最优进入另一个局部最优。在Snapshot论文中作者通过使用表明，此种方法可以在一定程度上提高模型精度，但需要更长的训练时间。
+Image
